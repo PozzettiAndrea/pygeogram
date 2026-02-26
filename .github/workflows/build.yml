@@ -122,49 +122,6 @@ jobs:
           files: dist/*
           generate_release_notes: true
 
-  # ── Demo site ────────────────────────────────────────────────────
-  demo:
-    name: Deploy demo site
-    needs: test
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
-    permissions:
-      pages: write
-      id-token: write
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheels-ubuntu-24.04-cp312
-          path: wheelhouse
-
-      - name: Install pygeogram + rendering deps
-        run: |
-          pip install wheelhouse/*.whl
-          pip install pyvista numpy vtk Pillow
-          sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dev
-
-      - name: Generate demo
-        run: xvfb-run -a python docs/generate_demo.py
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/_site
-
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v4
-
   # ── PyPI (only on tag, after tests) ─────────────────────────────
   publish_pypi:
     name: Publish to PyPI

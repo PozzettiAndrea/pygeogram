@@ -1,0 +1,52 @@
+name: Deploy demo site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & deploy site
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel
+        run: |
+          pip install nanobind numpy scikit-build-core
+          pip install . -v
+
+      - name: Install rendering deps
+        run: |
+          pip install pyvista vtk Pillow
+          sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dev
+
+      - name: Generate demo
+        run: xvfb-run -a python docs/generate_demo.py
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
