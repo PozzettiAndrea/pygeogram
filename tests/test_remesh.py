@@ -1,4 +1,4 @@
-"""Tests for pygeogram CVT remeshing."""
+"""Tests for pygeogram: CVT remeshing, mesh repair, mesh decimation."""
 
 import numpy as np
 import pytest
@@ -26,6 +26,9 @@ def make_icosphere():
     ], dtype=np.int32)
 
     return vertices, faces
+
+
+# ── CVT Remeshing ──────────────────────────────────────────────────
 
 
 def test_remesh_smooth_basic():
@@ -84,3 +87,131 @@ def test_remesh_smooth_input_validation():
 
     with pytest.raises((ValueError, RuntimeError)):
         pygeogram.remesh_smooth(bad_verts, good_faces, nb_points=10)
+
+
+# ── Mesh Repair ────────────────────────────────────────────────────
+
+
+def test_repair_colocate_vertices():
+    """Duplicate vertices at same position should be merged."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    n_orig = len(verts)
+
+    # Duplicate first 5 vertices (same position, new indices)
+    dup_verts = np.vstack([verts, verts[:5]])
+    # Rewire first face to use duplicated vertex
+    dup_faces = faces.copy()
+    dup_faces[0, 0] = n_orig  # face 0 vertex 0 → duplicate of vertex 0
+
+    v_out, f_out = pygeogram.mesh_repair(dup_verts, dup_faces, colocate=True)
+
+    # Should merge back to ~original vertex count
+    assert len(v_out) <= n_orig
+    assert f_out.shape[1] == 3
+
+
+def test_repair_remove_duplicate_faces():
+    """Duplicate faces should be removed."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    n_faces_orig = len(faces)
+
+    # Append 5 duplicate faces
+    dup_faces = np.vstack([faces, faces[:5]])
+
+    v_out, f_out = pygeogram.mesh_repair(verts, dup_faces, remove_duplicates=True)
+
+    assert len(f_out) <= n_faces_orig
+
+
+def test_repair_degenerate_faces():
+    """Degenerate faces (repeated vertex) should be removed."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    n_faces_orig = len(faces)
+
+    # Add degenerate faces: two identical vertex indices
+    degenerate = np.array([[0, 0, 1], [2, 3, 3]], dtype=np.int32)
+    bad_faces = np.vstack([faces, degenerate])
+
+    v_out, f_out = pygeogram.mesh_repair(verts, bad_faces)
+
+    assert len(f_out) <= n_faces_orig
+
+
+def test_repair_clean_mesh_passthrough():
+    """A clean mesh should pass through repair mostly unchanged."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    v_out, f_out = pygeogram.mesh_repair(verts, faces)
+
+    # Should have same or fewer (isolated vertex removal) vertices
+    assert len(v_out) <= len(verts) + 1
+    assert len(f_out) <= len(faces) + 1
+    assert v_out.shape[1] == 3
+    assert f_out.shape[1] == 3
+
+
+def test_repair_with_epsilon():
+    """Vertices within epsilon should be merged."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    n_orig = len(verts)
+
+    # Add near-duplicate: vertex 0 shifted by tiny amount
+    near_dup = verts[0:1] + 1e-10
+    verts_noisy = np.vstack([verts, near_dup])
+    # Rewire one face to use the near-duplicate
+    faces_mod = faces.copy()
+    faces_mod[0, 0] = n_orig
+
+    v_out, f_out = pygeogram.mesh_repair(
+        verts_noisy, faces_mod, colocate=True, colocate_epsilon=1e-6,
+    )
+
+    assert len(v_out) <= n_orig
+
+
+# ── Mesh Decimation ────────────────────────────────────────────────
+
+
+def test_decimate_reduces_count():
+    """Decimation should reduce vertex and face count."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    v_out, f_out = pygeogram.mesh_decimate(verts, faces, nb_bins=3)
+
+    assert len(v_out) < len(verts)
+    assert len(f_out) < len(faces)
+    assert v_out.shape[1] == 3
+    assert f_out.shape[1] == 3
+
+
+def test_decimate_more_bins_more_detail():
+    """Higher nb_bins should preserve more vertices."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    v_lo, _ = pygeogram.mesh_decimate(verts, faces, nb_bins=3)
+    v_hi, _ = pygeogram.mesh_decimate(verts, faces, nb_bins=10)
+
+    assert len(v_hi) >= len(v_lo)
+
+
+def test_decimate_preserves_bounds():
+    """Decimation should roughly preserve the bounding box."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    v_out, f_out = pygeogram.mesh_decimate(verts, faces, nb_bins=5)
+
+    orig_extent = np.max(np.abs(verts))
+    dec_extent = np.max(np.abs(v_out))
+    assert abs(dec_extent - orig_extent) < 0.5

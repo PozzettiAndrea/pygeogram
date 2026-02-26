@@ -1,6 +1,6 @@
-// Python bindings for geogram CVT remeshing via nanobind.
+// Python bindings for geogram geometry processing via nanobind.
 //
-// Exposes geogram's remesh_smooth() (Centroidal Voronoi Tessellation) to Python.
+// Exposes: remesh_smooth (CVT), mesh_repair, mesh_decimate.
 // Follows the same pattern as pymeshfix's _meshfix.cpp.
 
 #include <cstring>
@@ -20,6 +20,7 @@
 #include <geogram/mesh/mesh.h>
 #include <geogram/mesh/mesh_remesh.h>
 #include <geogram/mesh/mesh_repair.h>
+#include <geogram/mesh/mesh_decimate.h>
 
 namespace nb = nanobind;
 
@@ -145,6 +146,48 @@ static nb::tuple py_remesh_smooth(
     return geomesh_to_numpy(M_out);
 }
 
+// Wrapper for GEO::mesh_repair (in-place repair, returns cleaned mesh).
+static nb::tuple py_mesh_repair(
+    const NDArray<const double, 2> vertices,
+    const NDArray<const int, 2> faces,
+    int mode,
+    double colocate_epsilon
+) {
+    ensure_geogram_initialized();
+
+    GEO::Mesh M;
+    numpy_to_geomesh(vertices, faces, M);
+
+    GEO::mesh_repair(M, static_cast<GEO::MeshRepairMode>(mode), colocate_epsilon);
+
+    return geomesh_to_numpy(M);
+}
+
+// Wrapper for GEO::mesh_decimate_vertex_clustering.
+static nb::tuple py_mesh_decimate(
+    const NDArray<const double, 2> vertices,
+    const NDArray<const int, 2> faces,
+    int nb_bins,
+    int mode
+) {
+    ensure_geogram_initialized();
+
+    if (nb_bins < 1) {
+        throw std::runtime_error("nb_bins must be >= 1");
+    }
+
+    GEO::Mesh M;
+    numpy_to_geomesh(vertices, faces, M);
+
+    GEO::mesh_decimate_vertex_clustering(
+        M,
+        static_cast<GEO::index_t>(nb_bins),
+        static_cast<GEO::MeshDecimateMode>(mode)
+    );
+
+    return geomesh_to_numpy(M);
+}
+
 
 NB_MODULE(_pygeogram, m) {
     m.doc() = "Python bindings for geogram geometry processing library";
@@ -199,5 +242,80 @@ Examples
         nb::arg("adjust") = true,
         nb::arg("adjust_max_edge_distance") = 0.5,
         nb::arg("adjust_border_importance") = 2.0
+    );
+
+    // --- MeshRepairMode constants ---
+    m.attr("MESH_REPAIR_COLOCATE") = static_cast<int>(GEO::MESH_REPAIR_COLOCATE);
+    m.attr("MESH_REPAIR_DUP_F") = static_cast<int>(GEO::MESH_REPAIR_DUP_F);
+    m.attr("MESH_REPAIR_TRIANGULATE") = static_cast<int>(GEO::MESH_REPAIR_TRIANGULATE);
+    m.attr("MESH_REPAIR_RECONSTRUCT") = static_cast<int>(GEO::MESH_REPAIR_RECONSTRUCT);
+    m.attr("MESH_REPAIR_QUIET") = static_cast<int>(GEO::MESH_REPAIR_QUIET);
+    m.attr("MESH_REPAIR_DEFAULT") = static_cast<int>(GEO::MESH_REPAIR_DEFAULT);
+
+    m.def(
+        "mesh_repair",
+        &py_mesh_repair,
+        R"doc(
+Repair a triangle mesh: merge colocated vertices, remove duplicate/degenerate
+facets, triangulate, and fix non-manifold topology.
+
+Parameters
+----------
+vertices : numpy.ndarray[np.float64]
+    Vertex array of shape (N, 3).
+faces : numpy.ndarray[np.int32]
+    Face array of shape (M, 3).
+mode : int
+    Bitwise OR of MESH_REPAIR_* flags. Default: MESH_REPAIR_DEFAULT (7).
+colocate_epsilon : float, default: 0.0
+    Tolerance for merging colocated vertices. 0.0 = exact match only.
+
+Returns
+-------
+tuple[numpy.ndarray, numpy.ndarray]
+    (vertices, faces) — cleaned vertex array (P, 3) and face array (Q, 3).
+)doc",
+        nb::arg("vertices"),
+        nb::arg("faces"),
+        nb::arg("mode") = static_cast<int>(GEO::MESH_REPAIR_DEFAULT),
+        nb::arg("colocate_epsilon") = 0.0
+    );
+
+    // --- MeshDecimateMode constants ---
+    m.attr("MESH_DECIMATE_FAST") = static_cast<int>(GEO::MESH_DECIMATE_FAST);
+    m.attr("MESH_DECIMATE_DUP_F") = static_cast<int>(GEO::MESH_DECIMATE_DUP_F);
+    m.attr("MESH_DECIMATE_DEG_3") = static_cast<int>(GEO::MESH_DECIMATE_DEG_3);
+    m.attr("MESH_DECIMATE_KEEP_B") = static_cast<int>(GEO::MESH_DECIMATE_KEEP_B);
+    m.attr("MESH_DECIMATE_DEFAULT") = static_cast<int>(GEO::MESH_DECIMATE_DEFAULT);
+
+    m.def(
+        "mesh_decimate",
+        &py_mesh_decimate,
+        R"doc(
+Simplify a mesh using vertex clustering (spatial binning).
+
+Groups vertices into a 3D grid of nb_bins^3 cells, merges vertices within
+each cell, and rebuilds the face connectivity.
+
+Parameters
+----------
+vertices : numpy.ndarray[np.float64]
+    Vertex array of shape (N, 3).
+faces : numpy.ndarray[np.int32]
+    Face array of shape (M, 3).
+nb_bins : int
+    Grid resolution. Higher = more detail preserved. Typical: 50-200.
+mode : int
+    Bitwise OR of MESH_DECIMATE_* flags. Default: MESH_DECIMATE_DEFAULT (7).
+
+Returns
+-------
+tuple[numpy.ndarray, numpy.ndarray]
+    (vertices, faces) — simplified vertex array (P, 3) and face array (Q, 3).
+)doc",
+        nb::arg("vertices"),
+        nb::arg("faces"),
+        nb::arg("nb_bins"),
+        nb::arg("mode") = static_cast<int>(GEO::MESH_DECIMATE_DEFAULT)
     );
 }

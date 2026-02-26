@@ -10,26 +10,47 @@
 
 Python bindings for [geogram](https://github.com/BrunoLevy/geogram) geometry processing.
 
-Currently exposes **CVT (Centroidal Voronoi Tessellation) remeshing**.
-
 ## Installation
 
 ```bash
 pip install pygeogram --find-links https://github.com/PozzettiAndrea/pygeogram/releases/latest/download/
 ```
 
-## Currently Exposed API
+## API
+
+### CVT Remeshing
 
 ```python
 import pygeogram
-import trimesh
 
-mesh = trimesh.load("model.stl")
 v_out, f_out = pygeogram.remesh_smooth(
-    mesh.vertices, mesh.faces,
+    vertices, faces,
     nb_points=5000,
+    nb_lloyd_iter=5,      # Lloyd relaxation iterations
+    nb_newton_iter=30,    # Newton optimization iterations
 )
-result = trimesh.Trimesh(vertices=v_out, faces=f_out)
+```
+
+### Mesh Repair
+
+```python
+v_clean, f_clean = pygeogram.mesh_repair(
+    vertices, faces,
+    colocate=True,          # merge duplicate vertices
+    remove_duplicates=True, # remove duplicate/degenerate faces
+    triangulate=True,       # triangulate non-triangle faces
+    colocate_epsilon=0.0,   # vertex merge tolerance
+)
+```
+
+### Mesh Decimation
+
+```python
+v_simple, f_simple = pygeogram.mesh_decimate(
+    vertices, faces,
+    nb_bins=100,          # grid resolution (higher = more detail)
+    keep_borders=True,    # preserve boundary vertices
+)
 ```
 
 ## License

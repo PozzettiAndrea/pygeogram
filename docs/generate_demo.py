@@ -1,8 +1,8 @@
 """
-Generate visual demo of pygeogram CVT remeshing for GitHub Pages.
+Generate visual demo of pygeogram for GitHub Pages.
 
-Shows 3 examples of the same mesh with different parameters,
-alongside the actual code used.
+Shows CVT remeshing, mesh repair, and mesh decimation — each with
+the actual Python code used alongside before/after renders.
 """
 
 import os
@@ -23,6 +23,7 @@ OUT_DIR = os.path.join(os.path.dirname(__file__), "_site")
 BG_COLOR = "#1a1a2e"
 MESH_COLOR_IN = "#4fc3f7"
 MESH_COLOR_OUT = "#81c784"
+MESH_COLOR_WARN = "#ffb74d"
 EDGE_COLOR = "#222244"
 TEXT_COLOR = "#e0e0e0"
 
@@ -59,9 +60,10 @@ def get_mesh():
         return verts, faces, "sphere.stl"
 
 
-def run_example(name, verts_in, faces_in, kwargs, code):
+def run_demo(name, func, verts_in, faces_in, code, after_label="Output"):
+    """Run a pygeogram function, render before/after, return demo dict."""
     t0 = time.perf_counter()
-    verts_out, faces_out = pygeogram.remesh_smooth(verts_in, faces_in, **kwargs)
+    verts_out, faces_out = func(verts_in, faces_in)
     elapsed = time.perf_counter() - t0
 
     mesh_in = pv_mesh_from_numpy(verts_in, faces_in)
@@ -71,7 +73,7 @@ def run_example(name, verts_in, faces_in, kwargs, code):
     render_mesh(mesh_in, f"{prefix}_before.png",
                 f"Input: {len(verts_in):,} verts, {len(faces_in):,} faces")
     render_mesh(mesh_out, f"{prefix}_after.png",
-                f"Output: {len(verts_out):,} verts, {len(faces_out):,} faces  ({elapsed:.2f}s)",
+                f"{after_label}: {len(verts_out):,} verts, {len(faces_out):,} faces  ({elapsed:.2f}s)",
                 color=MESH_COLOR_OUT)
 
     return {
@@ -82,6 +84,7 @@ def run_example(name, verts_in, faces_in, kwargs, code):
         "faces_out": len(faces_out),
         "elapsed": elapsed,
         "code": code,
+        "after_label": after_label,
     }
 
 
@@ -89,16 +92,22 @@ def html_escape(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def generate_html(demos):
-    demo_sections = ""
-    for d in demos:
-        code_html = html_escape(d["code"])
-        demo_sections += f"""
+def generate_html(sections):
+    all_sections_html = ""
+    for section in sections:
+        all_sections_html += f"""
+    <h2 class="section-title">{section['title']}</h2>
+    <p class="section-sub">{section['subtitle']}</p>
+"""
+        for d in section["demos"]:
+            code_html = html_escape(d["code"])
+            label = d.get("after_label", "Output")
+            all_sections_html += f"""
     <section class="demo">
       <div class="demo-grid">
         <div class="demo-code">
           <pre><code>{code_html}</code></pre>
-          <p class="timing">{d['elapsed']:.2f}s &mdash; {d['verts_in']:,} &rarr; {d['verts_out']:,} verts</p>
+          <p class="timing">{d['elapsed']:.2f}s &mdash; {d['verts_in']:,} &rarr; {d['verts_out']:,} verts, {d['faces_in']:,} &rarr; {d['faces_out']:,} faces</p>
         </div>
         <div class="demo-images">
           <div class="comparison">
@@ -108,7 +117,7 @@ def generate_html(demos):
             </div>
             <div class="panel">
               <img src="{d['name']}_after.png" alt="After">
-              <span class="label">CVT Remeshed</span>
+              <span class="label">{label}</span>
             </div>
           </div>
         </div>
@@ -121,7 +130,7 @@ def generate_html(demos):
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>pygeogram — Voronoi Remeshing</title>
+  <title>pygeogram — Geometry Processing</title>
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{
@@ -155,6 +164,19 @@ def generate_html(demos):
     }}
     .links {{ margin-top: 0.8rem; color: #8b949e; }}
 
+    .section-title {{
+      font-size: 1.5rem;
+      color: #f0f6fc;
+      margin: 2.5rem 0 0.3rem 0;
+      padding-top: 1.5rem;
+      border-top: 1px solid #21262d;
+    }}
+    .section-sub {{
+      color: #8b949e;
+      font-size: 0.95rem;
+      margin-bottom: 1rem;
+    }}
+
     .demo {{
       background: #161b22;
       border: 1px solid #21262d;
@@ -167,7 +189,7 @@ def generate_html(demos):
       flex-wrap: wrap;
     }}
     .demo-code {{
-      flex: 0 0 400px;
+      flex: 0 0 420px;
       padding: 1.5rem;
       border-right: 1px solid #21262d;
       display: flex;
@@ -237,7 +259,7 @@ def generate_html(demos):
 <body>
   <header>
     <h1>pygeogram</h1>
-    <p class="sub">Python bindings for <a href="https://github.com/BrunoLevy/geogram">geogram</a> &mdash; Voronoi remeshing</p>
+    <p class="sub">Python bindings for <a href="https://github.com/BrunoLevy/geogram">geogram</a> &mdash; geometry processing</p>
     <div class="install">pip install pygeogram --find-links https://github.com/PozzettiAndrea/pygeogram/releases/latest/download/</div>
     <p class="links">
       <a href="https://github.com/PozzettiAndrea/pygeogram">GitHub</a> &middot;
@@ -245,7 +267,7 @@ def generate_html(demos):
     </p>
   </header>
 
-  {demo_sections}
+  {all_sections_html}
 
   <footer>
     Generated automatically by CI &middot;
@@ -264,11 +286,14 @@ def main():
     os.makedirs(OUT_DIR)
 
     verts, faces, mesh_name = get_mesh()
-    demos = []
+    sections = []
 
-    # Example 1: Default parameters
-    demos.append(run_example("default", verts, faces,
-        {"nb_points": 2000},
+    # ── CVT Remeshing ──────────────────────────────────────────────
+    remesh_demos = []
+
+    remesh_demos.append(run_demo("default",
+        lambda v, f: pygeogram.remesh_smooth(v, f, nb_points=2000),
+        verts, faces,
         textwrap.dedent(f"""\
             import pygeogram
             import trimesh
@@ -277,43 +302,126 @@ def main():
             v, f = pygeogram.remesh_smooth(
                 mesh.vertices, mesh.faces,
                 nb_points=2000,
-            )""")))
+            )"""),
+        after_label="CVT Remeshed"))
 
-    # Example 2: High quality — more Newton iterations
-    demos.append(run_example("high_quality", verts, faces,
-        {"nb_points": 3000, "nb_lloyd_iter": 10, "nb_newton_iter": 50},
+    remesh_demos.append(run_demo("high_quality",
+        lambda v, f: pygeogram.remesh_smooth(v, f, nb_points=3000,
+            nb_lloyd_iter=10, nb_newton_iter=50),
+        verts, faces,
         textwrap.dedent(f"""\
             v, f = pygeogram.remesh_smooth(
                 mesh.vertices, mesh.faces,
                 nb_points=3000,
                 nb_lloyd_iter=10,
                 nb_newton_iter=50,
-            )""")))
+            )"""),
+        after_label="CVT Remeshed"))
 
-    # Example 3: Fast low-poly — fewer iterations
-    demos.append(run_example("low_poly", verts, faces,
-        {"nb_points": 500, "nb_lloyd_iter": 3, "nb_newton_iter": 10},
+    remesh_demos.append(run_demo("low_poly",
+        lambda v, f: pygeogram.remesh_smooth(v, f, nb_points=500,
+            nb_lloyd_iter=3, nb_newton_iter=10),
+        verts, faces,
         textwrap.dedent(f"""\
             v, f = pygeogram.remesh_smooth(
                 mesh.vertices, mesh.faces,
                 nb_points=500,
                 nb_lloyd_iter=3,
                 nb_newton_iter=10,
-            )""")))
+            )"""),
+        after_label="CVT Remeshed"))
 
-    generate_html(demos)
+    sections.append({
+        "title": "CVT Remeshing",
+        "subtitle": "Isotropic remeshing via Centroidal Voronoi Tessellation",
+        "demos": remesh_demos,
+    })
 
-    # Preview image for README
+    # ── Mesh Repair ────────────────────────────────────────────────
+    repair_demos = []
+
+    # Manufacture defects: duplicate vertices + duplicate faces
+    n_orig_v = len(verts)
+    n_dup_v = min(500, n_orig_v)
+    n_dup_f = min(200, len(faces))
+    broken_verts = np.vstack([verts, verts[:n_dup_v]])
+    # Rewire duplicated faces to use the new (duplicate) vertex indices
+    dup_faces = faces[:n_dup_f].copy()
+    for i in range(len(dup_faces)):
+        for j in range(3):
+            if dup_faces[i, j] < n_dup_v:
+                dup_faces[i, j] += n_orig_v
+    broken_faces = np.vstack([faces, dup_faces])
+
+    repair_demos.append(run_demo("repair",
+        lambda v, f: pygeogram.mesh_repair(v, f),
+        broken_verts, broken_faces,
+        textwrap.dedent(f"""\
+            import pygeogram
+            import numpy as np
+
+            # Simulate corrupt mesh: {n_dup_v} duplicate
+            # vertices + {n_dup_f} duplicate faces
+            v = np.vstack([v_in, v_in[:{n_dup_v}]])
+            f = np.vstack([f_in, f_in[:{n_dup_f}]])
+
+            v_clean, f_clean = pygeogram.mesh_repair(
+                v, f,
+                colocate=True,
+                remove_duplicates=True,
+            )"""),
+        after_label="Repaired"))
+
+    sections.append({
+        "title": "Mesh Repair",
+        "subtitle": "Fix topology, merge duplicate vertices, remove degenerate faces",
+        "demos": repair_demos,
+    })
+
+    # ── Mesh Decimation ────────────────────────────────────────────
+    decimate_demos = []
+
+    decimate_demos.append(run_demo("decimate_med",
+        lambda v, f: pygeogram.mesh_decimate(v, f, nb_bins=100),
+        verts, faces,
+        textwrap.dedent(f"""\
+            import pygeogram
+
+            v, f = pygeogram.mesh_decimate(
+                mesh.vertices, mesh.faces,
+                nb_bins=100,
+            )"""),
+        after_label="Decimated"))
+
+    decimate_demos.append(run_demo("decimate_low",
+        lambda v, f: pygeogram.mesh_decimate(v, f, nb_bins=30),
+        verts, faces,
+        textwrap.dedent(f"""\
+            # Aggressive decimation
+            v, f = pygeogram.mesh_decimate(
+                mesh.vertices, mesh.faces,
+                nb_bins=30,
+            )"""),
+        after_label="Decimated"))
+
+    sections.append({
+        "title": "Vertex Clustering Decimation",
+        "subtitle": "Fast mesh simplification via spatial binning",
+        "demos": decimate_demos,
+    })
+
+    generate_html(sections)
+
+    # Preview image for README (first remesh before/after)
     try:
         from PIL import Image
-        imgs = []
-        for d in demos:
-            imgs.append(Image.open(os.path.join(OUT_DIR, f"{d['name']}_before.png")))
-            imgs.append(Image.open(os.path.join(OUT_DIR, f"{d['name']}_after.png")))
-        w, h = imgs[0].size
+        d = remesh_demos[0]
+        before = Image.open(os.path.join(OUT_DIR, f"{d['name']}_before.png"))
+        after = Image.open(os.path.join(OUT_DIR, f"{d['name']}_after.png"))
+        w, h = before.size
         grid = Image.new("RGB", (w * 2, h), "#0d1117")
-        grid.paste(imgs[0], (0, 0))
-        grid.paste(imgs[1], (w, 0))
+        grid.paste(before, (0, 0))
+        grid.paste(after, (w, 0))
         grid.save(os.path.join(OUT_DIR, "preview.png"))
     except Exception as e:
         print(f"Skipping preview: {e}")
