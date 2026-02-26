@@ -410,6 +410,166 @@ def main():
         "demos": decimate_demos,
     })
 
+    # ── Smoothing ─────────────────────────────────────────────────
+    smooth_demos = []
+
+    smooth_demos.append(run_demo("smooth_laplacian",
+        lambda v, f: pygeogram.smooth(v, f, nb_iter=5),
+        verts, faces,
+        textwrap.dedent(f"""\
+            import pygeogram
+
+            v, f = pygeogram.smooth(
+                mesh.vertices, mesh.faces,
+                nb_iter=5,
+            )"""),
+        after_label="Smoothed"))
+
+    smooth_demos.append(run_demo("smooth_lsq",
+        lambda v, f: pygeogram.smooth_lsq(v, f),
+        verts, faces,
+        textwrap.dedent(f"""\
+            # Least-squares Laplacian (higher quality)
+            v, f = pygeogram.smooth_lsq(
+                mesh.vertices, mesh.faces,
+            )"""),
+        after_label="Smoothed (LSQ)"))
+
+    sections.append({
+        "title": "Mesh Smoothing",
+        "subtitle": "Laplacian and least-squares smoothing",
+        "demos": smooth_demos,
+    })
+
+    # ── Anisotropic Remeshing ─────────────────────────────────────
+    aniso_demos = []
+
+    aniso_demos.append(run_demo("aniso_default",
+        lambda v, f: pygeogram.remesh_anisotropic(v, f, nb_points=2000),
+        verts, faces,
+        textwrap.dedent(f"""\
+            import pygeogram
+
+            v, f = pygeogram.remesh_anisotropic(
+                mesh.vertices, mesh.faces,
+                nb_points=2000,
+                anisotropy=0.04,
+            )"""),
+        after_label="Anisotropic Remeshed"))
+
+    aniso_demos.append(run_demo("aniso_strong",
+        lambda v, f: pygeogram.remesh_anisotropic(v, f, nb_points=2000,
+            anisotropy=0.02),
+        verts, faces,
+        textwrap.dedent(f"""\
+            # Stronger anisotropy (more curvature-adapted)
+            v, f = pygeogram.remesh_anisotropic(
+                mesh.vertices, mesh.faces,
+                nb_points=2000,
+                anisotropy=0.02,
+            )"""),
+        after_label="Anisotropic Remeshed"))
+
+    sections.append({
+        "title": "Anisotropic Remeshing",
+        "subtitle": "Curvature-adapted CVT remeshing \u2014 elongated triangles in flat regions, finer in curved areas",
+        "demos": aniso_demos,
+    })
+
+    # ── Surface Reconstruction ────────────────────────────────────
+    recon_demos = []
+
+    # Create a point cloud from the mesh vertices (subsample for visual clarity)
+    rng = np.random.default_rng(42)
+    n_pts = min(5000, len(verts))
+    idx = rng.choice(len(verts), size=n_pts, replace=False)
+    points = verts[idx]
+
+    # We need a special render for point clouds (no faces)
+    prefix_pc = os.path.join(OUT_DIR, "pointcloud")
+    pc_pv = pv.PolyData(points)
+    pl = pv.Plotter(off_screen=True, window_size=(800, 600))
+    pl.add_mesh(pc_pv, color=MESH_COLOR_IN, point_size=3, render_points_as_spheres=True)
+    pl.add_text(f"Input: {n_pts:,} points", position="upper_left", font_size=12, color=TEXT_COLOR)
+    pl.set_background(BG_COLOR)
+    pl.camera_position = "iso"
+    pl.screenshot(f"{prefix_pc}_before.png", transparent_background=False)
+    pl.close()
+
+    # Co3Ne reconstruction
+    t0 = time.perf_counter()
+    v_recon, f_recon = pygeogram.co3ne_reconstruct(points, nb_neighbors=20, nb_iterations=0, radius=5.0)
+    elapsed_co3ne = time.perf_counter() - t0
+
+    mesh_recon = pv_mesh_from_numpy(v_recon, f_recon)
+    render_mesh(mesh_recon, f"{prefix_pc}_after.png",
+                f"Co3Ne: {len(v_recon):,} verts, {len(f_recon):,} faces  ({elapsed_co3ne:.2f}s)",
+                color=MESH_COLOR_OUT)
+
+    recon_demos.append({
+        "name": "pointcloud",
+        "verts_in": n_pts,
+        "faces_in": 0,
+        "verts_out": len(v_recon),
+        "faces_out": len(f_recon),
+        "elapsed": elapsed_co3ne,
+        "code": textwrap.dedent(f"""\
+            import pygeogram
+            import numpy as np
+
+            # {n_pts:,} points sampled from surface
+            v, f = pygeogram.co3ne_reconstruct(
+                points,
+                nb_neighbors=20,
+                radius=5.0,
+            )"""),
+        "after_label": "Co3Ne Reconstructed",
+    })
+
+    # Poisson reconstruction
+    normals = points / np.linalg.norm(points, axis=1, keepdims=True)  # outward normals for roughly centered mesh
+    # Use Co3Ne to get better normals
+    try:
+        normals = pygeogram.co3ne_compute_normals(points, nb_neighbors=20, reorient=True)
+    except Exception:
+        pass
+
+    t0 = time.perf_counter()
+    v_poisson, f_poisson = pygeogram.poisson_reconstruct(points, normals, depth=6)
+    elapsed_poisson = time.perf_counter() - t0
+
+    mesh_poisson = pv_mesh_from_numpy(v_poisson, f_poisson)
+    prefix_poisson = os.path.join(OUT_DIR, "poisson")
+    # Reuse the point cloud input image
+    shutil.copy(f"{prefix_pc}_before.png", f"{prefix_poisson}_before.png")
+    render_mesh(mesh_poisson, f"{prefix_poisson}_after.png",
+                f"Poisson: {len(v_poisson):,} verts, {len(f_poisson):,} faces  ({elapsed_poisson:.2f}s)",
+                color=MESH_COLOR_OUT)
+
+    recon_demos.append({
+        "name": "poisson",
+        "verts_in": n_pts,
+        "faces_in": 0,
+        "verts_out": len(v_poisson),
+        "faces_out": len(f_poisson),
+        "elapsed": elapsed_poisson,
+        "code": textwrap.dedent(f"""\
+            # Poisson reconstruction (needs normals)
+            normals = pygeogram.co3ne_compute_normals(
+                points, nb_neighbors=20, reorient=True,
+            )
+            v, f = pygeogram.poisson_reconstruct(
+                points, normals, depth=6,
+            )"""),
+        "after_label": "Poisson Reconstructed",
+    })
+
+    sections.append({
+        "title": "Surface Reconstruction",
+        "subtitle": "Reconstruct triangle meshes from point clouds \u2014 Co3Ne and Poisson methods",
+        "demos": recon_demos,
+    })
+
     generate_html(sections)
 
     # Preview image for README (first remesh before/after)
