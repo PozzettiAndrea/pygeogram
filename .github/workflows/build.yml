@@ -17,6 +17,7 @@ jobs:
   build_wheels:
     name: "${{ matrix.os }} cp${{ matrix.python }}"
     runs-on: ${{ matrix.os }}
+    environment: build
     strategy:
       fail-fast: false
       matrix:
