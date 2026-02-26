@@ -25,7 +25,7 @@ dependencies = [
 description = "Python bindings for geogram geometry processing (CVT remeshing)"
 name = "pygeogram"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 version = "0.1.0"
 
 [project.optional-dependencies]
@@ -40,7 +40,7 @@ Homepage = "https://github.com/PozzettiAndrea/pygeogram"
 "Source Code" = "https://github.com/PozzettiAndrea/pygeogram"
 
 [tool.cibuildwheel]
-build = "cp310-* cp311-* cp312-* cp313-*"
+build = "cp312-*"
 skip = "*musllinux* *i686*"
 test-command = "python -c \"import pygeogram; print(pygeogram.remesh_smooth); print('OK')\""
 test-requires = "numpy"
