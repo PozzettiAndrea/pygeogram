@@ -215,3 +215,177 @@ def test_decimate_preserves_bounds():
     orig_extent = np.max(np.abs(verts))
     dec_extent = np.max(np.abs(v_out))
     assert abs(dec_extent - orig_extent) < 0.5
+
+
+# ── Smoothing ─────────────────────────────────────────────────────
+
+
+def test_smooth_basic():
+    """Laplacian smoothing should return valid mesh of same topology."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    v_out, f_out = pygeogram.smooth(verts, faces, nb_iter=3)
+
+    assert v_out.shape == verts.shape
+    assert f_out.shape == faces.shape
+    assert v_out.dtype == np.float64
+    assert f_out.dtype == np.int32
+
+
+def test_smooth_shrinks_mesh():
+    """Laplacian smoothing should shrink a convex mesh slightly."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    v_out, _ = pygeogram.smooth(verts, faces, nb_iter=5)
+
+    orig_extent = np.max(np.abs(verts))
+    smoothed_extent = np.max(np.abs(v_out))
+    # Smoothing a convex shape should shrink it
+    assert smoothed_extent < orig_extent
+
+
+def test_smooth_lsq_basic():
+    """Least-squares smoothing should return valid mesh."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    v_out, f_out = pygeogram.smooth_lsq(verts, faces)
+
+    assert v_out.shape[1] == 3
+    assert f_out.shape[1] == 3
+    assert len(v_out) == len(verts)
+    assert len(f_out) == len(faces)
+
+
+def test_compute_normals():
+    """Normals should have correct shape and be roughly unit length."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    normals = pygeogram.compute_normals(verts, faces)
+
+    assert normals.shape == verts.shape
+    assert normals.dtype == np.float64
+
+    # Normals on a unit sphere should be roughly unit length
+    lengths = np.linalg.norm(normals, axis=1)
+    assert np.all(lengths > 0.5)
+    assert np.all(lengths < 2.0)
+
+
+# ── Anisotropic Remeshing ─────────────────────────────────────────
+
+
+def test_remesh_anisotropic_basic():
+    """Anisotropic remeshing should produce valid output."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    v_out, f_out = pygeogram.remesh_anisotropic(
+        verts, faces, nb_points=100, anisotropy=0.04,
+    )
+
+    assert isinstance(v_out, np.ndarray)
+    assert isinstance(f_out, np.ndarray)
+    assert v_out.ndim == 2 and v_out.shape[1] == 3
+    assert f_out.ndim == 2 and f_out.shape[1] == 3
+    assert len(v_out) > 0
+    assert len(f_out) > 0
+
+
+def test_remesh_anisotropic_preserves_scale():
+    """Anisotropic remeshing should roughly preserve bounding box."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    v_out, _ = pygeogram.remesh_anisotropic(
+        verts, faces, nb_points=200, anisotropy=0.04,
+    )
+
+    original_extent = np.max(np.abs(verts))
+    remeshed_extent = np.max(np.abs(v_out))
+    assert abs(remeshed_extent - original_extent) < 0.2
+
+
+# ── Surface Reconstruction ────────────────────────────────────────
+
+
+def make_point_cloud(n=500):
+    """Create a noisy sphere point cloud for reconstruction tests."""
+    # Fibonacci sphere for even distribution
+    indices = np.arange(0, n, dtype=float) + 0.5
+    phi = np.arccos(1 - 2 * indices / n)
+    theta = np.pi * (1 + 5**0.5) * indices
+
+    x = np.cos(theta) * np.sin(phi)
+    y = np.sin(theta) * np.sin(phi)
+    z = np.cos(phi)
+
+    points = np.column_stack([x, y, z]).astype(np.float64)
+    return points
+
+
+def test_co3ne_reconstruct_basic():
+    """Co3Ne should reconstruct faces from a point cloud."""
+    import pygeogram
+
+    points = make_point_cloud(500)
+    v_out, f_out = pygeogram.co3ne_reconstruct(
+        points, nb_neighbors=20, nb_iterations=0, radius=5.0,
+    )
+
+    assert v_out.ndim == 2 and v_out.shape[1] == 3
+    assert f_out.ndim == 2 and f_out.shape[1] == 3
+    assert len(f_out) > 0  # should have produced triangles
+
+
+def test_co3ne_compute_normals():
+    """Co3Ne should estimate normals for a point cloud."""
+    import pygeogram
+
+    points = make_point_cloud(200)
+    normals = pygeogram.co3ne_compute_normals(points, nb_neighbors=20)
+
+    assert normals.shape == points.shape
+    assert normals.dtype == np.float64
+
+    # Normals should be non-zero
+    lengths = np.linalg.norm(normals, axis=1)
+    assert np.all(lengths > 0.01)
+
+
+def test_poisson_reconstruct_basic():
+    """Poisson reconstruction should produce a mesh from points + normals."""
+    import pygeogram
+
+    points = make_point_cloud(500)
+    # Normals pointing outward (same as positions for a unit sphere)
+    normals = points / np.linalg.norm(points, axis=1, keepdims=True)
+
+    v_out, f_out = pygeogram.poisson_reconstruct(points, normals, depth=5)
+
+    assert v_out.ndim == 2 and v_out.shape[1] == 3
+    assert f_out.ndim == 2 and f_out.shape[1] == 3
+    assert len(v_out) > 0
+    assert len(f_out) > 0
+
+
+def test_reconstruction_input_validation():
+    """Invalid inputs should raise errors."""
+    import pygeogram
+
+    bad_points = np.zeros((10, 2), dtype=np.float64)
+
+    with pytest.raises((ValueError, RuntimeError)):
+        pygeogram.co3ne_reconstruct(bad_points)
+
+    with pytest.raises((ValueError, RuntimeError)):
+        pygeogram.co3ne_compute_normals(bad_points)
+
+    good_points = np.zeros((10, 3), dtype=np.float64)
+    bad_normals = np.zeros((10, 2), dtype=np.float64)
+
+    with pytest.raises((ValueError, RuntimeError)):
+        pygeogram.poisson_reconstruct(good_points, bad_normals)
