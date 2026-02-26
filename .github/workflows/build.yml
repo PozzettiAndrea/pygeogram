@@ -15,13 +15,13 @@ concurrency:
 
 jobs:
   build_wheels:
-    name: Wheels on ${{ matrix.os }}
+    name: "${{ matrix.os }} cp${{ matrix.python }}"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-14, windows-2022]
-        # macos-14 = arm64 (Apple Silicon)
+        python: ["310", "311", "312", "313"]
 
     steps:
       - uses: actions/checkout@v4
@@ -29,10 +29,12 @@ jobs:
           submodules: recursive
 
       - uses: pypa/cibuildwheel@v2.21
+        env:
+          CIBW_BUILD: "cp${{ matrix.python }}-*"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}
+          name: wheels-${{ matrix.os }}-cp${{ matrix.python }}
           path: ./wheelhouse/*.whl
 
   build_sdist:
@@ -74,15 +76,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Grab the Linux wheel we just built
+      # Grab a Linux cp312 wheel we just built
       - uses: actions/download-artifact@v4
         with:
-          name: wheels-ubuntu-24.04
+          name: wheels-ubuntu-24.04-cp312
           path: wheelhouse
 
       - name: Install pygeogram + rendering deps
         run: |
-          # Install our freshly built wheel
           pip install wheelhouse/*.whl
           # pyvista with osmesa for headless rendering
           pip install pyvista numpy vtk Pillow
