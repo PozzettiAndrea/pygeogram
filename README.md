@@ -15,7 +15,7 @@ Currently exposes **CVT (Centroidal Voronoi Tessellation) remeshing**.
 ## Installation
 
 ```bash
-pip install pygeogram --extra-index-url https://pozzettiandrea.github.io/pygeogram/wheels/
+pip install pygeogram --find-links https://github.com/PozzettiAndrea/pygeogram/releases/latest/download/
 ```
 
 ## Currently Exposed API

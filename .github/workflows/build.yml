@@ -57,9 +57,39 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
-  pages:
-    name: Deploy demo + packages
+  release:
+    name: Upload to GitHub Releases
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect wheels and sdist
+        run: |
+          mkdir -p dist
+          find artifacts -name "*.whl" -exec cp {} dist/ \;
+          find artifacts -name "*.tar.gz" -exec cp {} dist/ \;
+          echo "Collected:"
+          ls -la dist/
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest Build' }}
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          files: dist/*
+          generate_release_notes: true
+
+  demo:
+    name: Deploy demo site
+    needs: build_wheels
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -77,43 +107,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Download ALL wheel artifacts
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: wheels-ubuntu-24.04-cp312
+          path: wheelhouse
 
-      # Install a linux wheel for the demo rendering
       - name: Install pygeogram + rendering deps
         run: |
-          pip install artifacts/wheels-ubuntu-24.04-cp312/*.whl
+          pip install wheelhouse/*.whl
           pip install pyvista numpy vtk Pillow
           sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dev
 
       - name: Generate demo
         run: xvfb-run -a python docs/generate_demo.py
-
-      # Build the PEP 503 package index
-      - name: Generate package index
-        run: |
-          mkdir -p docs/_site/wheels/pygeogram
-          # Collect all wheels and sdist
-          find artifacts -name "*.whl" -exec cp {} docs/_site/wheels/pygeogram/ \;
-          find artifacts -name "*.tar.gz" -exec cp {} docs/_site/wheels/pygeogram/ \;
-          # Generate PEP 503 package index
-          cd docs/_site/wheels
-          cat > index.html <<'INDEXEOF'
-          <!DOCTYPE html><html><body>
-          <a href="pygeogram/">pygeogram</a>
-          </body></html>
-          INDEXEOF
-          cd pygeogram
-          echo '<!DOCTYPE html><html><body>' > index.html
-          for f in *.whl *.tar.gz; do
-            [ -f "$f" ] && echo "<a href=\"$f\">$f</a>" >> index.html
-          done
-          echo '</body></html>' >> index.html
-          echo "Package index:"
-          cat index.html
 
       - uses: actions/upload-pages-artifact@v3
         with:
