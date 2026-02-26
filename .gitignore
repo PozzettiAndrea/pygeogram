@@ -6,3 +6,4 @@ dist/
 _skbuild/
 wheelhouse/
 docs/_site/
+.ipynb_checkpoints/
