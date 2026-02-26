@@ -1,4 +1,4 @@
-name: Build & Release
+name: Build & Publish
 
 on:
   push:
@@ -57,9 +57,9 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
-  demo_pages:
-    name: Generate demo & deploy pages
-    needs: build_wheels
+  pages:
+    name: Deploy demo + packages
+    needs: [build_wheels, build_sdist]
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -77,26 +77,45 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Grab a Linux cp312 wheel we just built
+      # Download ALL wheel artifacts
       - uses: actions/download-artifact@v4
         with:
-          name: wheels-ubuntu-24.04-cp312
-          path: wheelhouse
+          path: artifacts
 
+      # Install a linux wheel for the demo rendering
       - name: Install pygeogram + rendering deps
         run: |
-          pip install wheelhouse/*.whl
-          # pyvista with osmesa for headless rendering
+          pip install artifacts/wheels-ubuntu-24.04-cp312/*.whl
           pip install pyvista numpy vtk Pillow
-          # xvfb for virtual display
           sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dev
 
       - name: Generate demo
-        run: |
-          xvfb-run -a python docs/generate_demo.py
+        run: xvfb-run -a python docs/generate_demo.py
 
-      - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v3
+      # Build the PEP 503 package index
+      - name: Generate package index
+        run: |
+          mkdir -p docs/_site/wheels/pygeogram
+          # Collect all wheels and sdist
+          find artifacts -name "*.whl" -exec cp {} docs/_site/wheels/pygeogram/ \;
+          find artifacts -name "*.tar.gz" -exec cp {} docs/_site/wheels/pygeogram/ \;
+          # Generate PEP 503 package index
+          cd docs/_site/wheels
+          cat > index.html <<'INDEXEOF'
+          <!DOCTYPE html><html><body>
+          <a href="pygeogram/">pygeogram</a>
+          </body></html>
+          INDEXEOF
+          cd pygeogram
+          echo '<!DOCTYPE html><html><body>' > index.html
+          for f in *.whl *.tar.gz; do
+            [ -f "$f" ] && echo "<a href=\"$f\">$f</a>" >> index.html
+          done
+          echo '</body></html>' >> index.html
+          echo "Package index:"
+          cat index.html
+
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/_site
 
@@ -104,38 +123,7 @@ jobs:
         id: deploy
         uses: actions/deploy-pages@v4
 
-  release:
-    name: GitHub Release
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    needs: [build_wheels, build_sdist]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Collect all wheels and sdist
-        run: |
-          mkdir -p dist
-          find artifacts -name "*.whl" -exec cp {} dist/ \;
-          find artifacts -name "*.tar.gz" -exec cp {} dist/ \;
-          echo "Collected:"
-          ls -la dist/
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
-          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest Build' }}
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          files: dist/*
-          generate_release_notes: true
-
-  publish:
+  publish_pypi:
     name: Publish to PyPI
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build_wheels, build_sdist]
