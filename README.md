@@ -1,16 +1,30 @@
 # pygeogram
 
+<div align="center">
+<a href="https://pozzettiandrea.github.io/pygeogram/">
+<img src="https://pozzettiandrea.github.io/pygeogram/preview.png" alt="CVT Remeshing Demo" width="800">
+</a>
+<br>
+<b><a href="https://pozzettiandrea.github.io/pygeogram/">View Live Demo →</a></b>
+</div>
+
 Python bindings for [geogram](https://github.com/BrunoLevy/geogram) geometry processing.
 
 Currently exposes **CVT (Centroidal Voronoi Tessellation) remeshing** — geogram's
 high-quality isotropic surface remesher by Bruno Levy (INRIA).
 
-**[Live demo with visual results](https://pozzettiandrea.github.io/pygeogram/)**
-
 ## Installation
 
+Pre-built wheels for Linux, macOS (Apple Silicon), and Windows:
+
 ```bash
-pip install pygeogram
+pip install pygeogram --extra-index-url https://pozzettiandrea.github.io/pygeogram/wheels/
+```
+
+Or install directly from the latest GitHub release:
+
+```bash
+pip install pygeogram --find-links https://github.com/PozzettiAndrea/pygeogram/releases/latest/download/
 ```
 
 ## Exposed API
@@ -27,20 +41,14 @@ Remesh a triangle surface using Centroidal Voronoi Tessellation. Distributes poi
 evenly via Lloyd relaxation + Newton/L-BFGS optimization, then extracts the dual surface.
 
 ```python
-import numpy as np
 import pygeogram
-
-# From numpy arrays
-v_out, f_out = pygeogram.remesh_smooth(
-    vertices,       # (N, 3) float64
-    faces,          # (M, 3) int32
-    nb_points=5000, # target vertex count
-)
-
-# From trimesh
 import trimesh
+
 mesh = trimesh.load("model.stl")
-v_out, f_out = pygeogram.remesh_smooth(mesh.vertices, mesh.faces, nb_points=5000)
+v_out, f_out = pygeogram.remesh_smooth(
+    mesh.vertices, mesh.faces,
+    nb_points=5000,
+)
 result = trimesh.Trimesh(vertices=v_out, faces=f_out)
 ```
 

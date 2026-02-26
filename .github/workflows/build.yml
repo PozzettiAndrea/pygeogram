@@ -85,7 +85,7 @@ jobs:
           # Install our freshly built wheel
           pip install wheelhouse/*.whl
           # pyvista with osmesa for headless rendering
-          pip install pyvista numpy vtk
+          pip install pyvista numpy vtk Pillow
           # xvfb for virtual display
           sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dev
 
@@ -104,9 +104,11 @@ jobs:
 
   release:
     name: GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Download all artifacts
@@ -125,6 +127,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest Build' }}
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           files: dist/*
           generate_release_notes: true
 
