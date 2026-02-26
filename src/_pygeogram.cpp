@@ -1,7 +1,8 @@
 // Python bindings for geogram geometry processing via nanobind.
 //
 // Exposes: remesh_smooth (CVT), remesh_anisotropic, mesh_repair,
-//          mesh_decimate, smoothing, normals, Co3Ne + Poisson reconstruction.
+//          mesh_decimate, smoothing, normals, Co3Ne + Poisson reconstruction,
+//          boolean operations, mesh I/O, UV atlas parameterization.
 // Follows the same pattern as pymeshfix's _meshfix.cpp.
 
 #include <cstring>
@@ -26,6 +27,9 @@
 #include <geogram/mesh/mesh_smoothing.h>
 #include <geogram/points/co3ne.h>
 #include <geogram/third_party/PoissonRecon/poisson_geogram.h>
+#include <geogram/mesh/mesh_surface_intersection.h>
+#include <geogram/mesh/mesh_io.h>
+#include <geogram/parameterization/mesh_atlas_maker.h>
 
 namespace nb = nanobind;
 
@@ -469,6 +473,111 @@ static nb::tuple py_poisson_reconstruct(
     return geomesh_to_numpy(M_surface);
 }
 
+// ── Boolean operation wrappers ────────────────────────────────────
+
+static nb::tuple py_mesh_boolean(
+    const NDArray<const double, 2> vertices_a,
+    const NDArray<const int, 2> faces_a,
+    const NDArray<const double, 2> vertices_b,
+    const NDArray<const int, 2> faces_b,
+    const std::string &operation
+) {
+    ensure_geogram_initialized();
+
+    if (operation != "A+B" && operation != "A*B" &&
+        operation != "A-B" && operation != "B-A") {
+        throw std::runtime_error(
+            "operation must be one of: 'A+B', 'A*B', 'A-B', 'B-A'"
+        );
+    }
+
+    GEO::Mesh A, B, result;
+    numpy_to_geomesh(vertices_a, faces_a, A);
+    numpy_to_geomesh(vertices_b, faces_b, B);
+
+    GEO::mesh_boolean_operation(result, A, B, operation);
+
+    return geomesh_to_numpy(result);
+}
+
+// ── Mesh I/O wrappers ────────────────────────────────────────────
+
+static nb::tuple py_mesh_load(const std::string &filename) {
+    ensure_geogram_initialized();
+
+    GEO::Mesh M;
+    if (!GEO::mesh_load(filename, M)) {
+        throw std::runtime_error("Failed to load mesh from: " + filename);
+    }
+
+    // Triangulate if needed (some formats have quads/polygons)
+    M.facets.triangulate();
+
+    return geomesh_to_numpy(M);
+}
+
+static void py_mesh_save(
+    const NDArray<const double, 2> vertices,
+    const NDArray<const int, 2> faces,
+    const std::string &filename
+) {
+    ensure_geogram_initialized();
+
+    GEO::Mesh M;
+    numpy_to_geomesh(vertices, faces, M);
+
+    if (!GEO::mesh_save(M, filename)) {
+        throw std::runtime_error("Failed to save mesh to: " + filename);
+    }
+}
+
+// ── UV Atlas parameterization wrapper ────────────────────────────
+
+static NDArray<double, 3> py_mesh_make_atlas(
+    const NDArray<const double, 2> vertices,
+    const NDArray<const int, 2> faces,
+    double hard_angles_threshold,
+    int parameterizer,
+    int packer
+) {
+    ensure_geogram_initialized();
+
+    GEO::Mesh M;
+    numpy_to_geomesh(vertices, faces, M);
+
+    GEO::mesh_make_atlas(
+        M,
+        hard_angles_threshold,
+        static_cast<GEO::ChartParameterizer>(parameterizer),
+        static_cast<GEO::ChartPacker>(packer),
+        false
+    );
+
+    // Extract UV coordinates from facet corner "tex_coord" attribute
+    const GEO::index_t nf = M.facets.nb();
+    GEO::Attribute<double> tex_coord;
+    tex_coord.bind_if_is_defined(M.facet_corners.attributes(), "tex_coord");
+    if (!tex_coord.is_bound() || tex_coord.dimension() != 2) {
+        throw std::runtime_error("Atlas generation failed: no tex_coord attribute");
+    }
+
+    // Output shape: (num_faces, 3, 2)
+    NDArray<double, 3> uvs = MakeNDArray<double, 3>(
+        {static_cast<int>(nf), 3, 2}
+    );
+    double *out = uvs.data();
+
+    for (GEO::index_t f = 0; f < nf; ++f) {
+        for (GEO::index_t lv = 0; lv < 3; ++lv) {
+            GEO::index_t c = M.facets.corners_begin(f) + lv;
+            out[(f * 3 + lv) * 2 + 0] = tex_coord[2 * c + 0];
+            out[(f * 3 + lv) * 2 + 1] = tex_coord[2 * c + 1];
+        }
+    }
+
+    return uvs;
+}
+
 NB_MODULE(_pygeogram, m) {
     m.doc() = "Python bindings for geogram geometry processing library";
 
@@ -816,5 +925,129 @@ tuple[numpy.ndarray, numpy.ndarray]
         nb::arg("vertices"),
         nb::arg("normals"),
         nb::arg("depth") = 8
+    );
+
+    // --- Boolean Operations ---
+    m.def(
+        "mesh_boolean",
+        &py_mesh_boolean,
+        R"doc(
+Compute a boolean operation between two closed surface meshes.
+
+Parameters
+----------
+vertices_a : numpy.ndarray[np.float64]
+    Vertex array of mesh A, shape (N, 3).
+faces_a : numpy.ndarray[np.int32]
+    Face array of mesh A, shape (M, 3).
+vertices_b : numpy.ndarray[np.float64]
+    Vertex array of mesh B, shape (P, 3).
+faces_b : numpy.ndarray[np.int32]
+    Face array of mesh B, shape (Q, 3).
+operation : str
+    One of: 'A+B' (union), 'A*B' (intersection), 'A-B' (difference), 'B-A'.
+
+Returns
+-------
+tuple[numpy.ndarray, numpy.ndarray]
+    (vertices, faces) — result vertex array and face array.
+)doc",
+        nb::arg("vertices_a"),
+        nb::arg("faces_a"),
+        nb::arg("vertices_b"),
+        nb::arg("faces_b"),
+        nb::arg("operation")
+    );
+
+    // --- Mesh I/O ---
+    m.def(
+        "mesh_load",
+        &py_mesh_load,
+        R"doc(
+Load a mesh from a file.
+
+Supports OBJ, PLY, OFF, STL, mesh/meshb formats. Format is detected
+from the file extension. Non-triangular faces are automatically triangulated.
+
+Parameters
+----------
+filename : str
+    Path to the mesh file.
+
+Returns
+-------
+tuple[numpy.ndarray, numpy.ndarray]
+    (vertices, faces) — vertex array (N, 3) and face array (M, 3).
+)doc",
+        nb::arg("filename")
+    );
+
+    m.def(
+        "mesh_save",
+        &py_mesh_save,
+        R"doc(
+Save a mesh to a file.
+
+Supports OBJ, PLY, OFF, STL, mesh/meshb formats. Format is detected
+from the file extension.
+
+Parameters
+----------
+vertices : numpy.ndarray[np.float64]
+    Vertex array of shape (N, 3).
+faces : numpy.ndarray[np.int32]
+    Face array of shape (M, 3).
+filename : str
+    Path to the output file.
+)doc",
+        nb::arg("vertices"),
+        nb::arg("faces"),
+        nb::arg("filename")
+    );
+
+    // --- Parameterization / UV Atlas ---
+    m.attr("PARAM_PROJECTION") = static_cast<int>(GEO::PARAM_PROJECTION);
+    m.attr("PARAM_LSCM") = static_cast<int>(GEO::PARAM_LSCM);
+    m.attr("PARAM_SPECTRAL_LSCM") = static_cast<int>(GEO::PARAM_SPECTRAL_LSCM);
+    m.attr("PARAM_ABF") = static_cast<int>(GEO::PARAM_ABF);
+
+    m.attr("PACK_NONE") = static_cast<int>(GEO::PACK_NONE);
+    m.attr("PACK_TETRIS") = static_cast<int>(GEO::PACK_TETRIS);
+    m.attr("PACK_XATLAS") = static_cast<int>(GEO::PACK_XATLAS);
+
+    m.def(
+        "mesh_make_atlas",
+        &py_mesh_make_atlas,
+        R"doc(
+Generate UV texture coordinates for a mesh.
+
+Decomposes the mesh into charts, parameterizes each chart, and packs
+them into texture space.
+
+Parameters
+----------
+vertices : numpy.ndarray[np.float64]
+    Vertex array of shape (N, 3).
+faces : numpy.ndarray[np.int32]
+    Face array of shape (M, 3), triangles only.
+hard_angles_threshold : float, default: 45.0
+    Dihedral angle threshold (degrees) for chart boundaries.
+parameterizer : int, default: PARAM_ABF
+    Chart parameterization method. One of PARAM_PROJECTION (0),
+    PARAM_LSCM (1), PARAM_SPECTRAL_LSCM (2), PARAM_ABF (3).
+packer : int, default: PACK_XATLAS
+    Chart packing method. One of PACK_NONE (0), PACK_TETRIS (1),
+    PACK_XATLAS (2).
+
+Returns
+-------
+numpy.ndarray[np.float64]
+    UV coordinates of shape (M, 3, 2) — per face, per corner, (u, v).
+)doc",
+        nb::arg("vertices"),
+        nb::arg("faces"),
+        nb::arg("hard_angles_threshold") = 45.0,
+        nb::arg("parameterizer") = static_cast<int>(GEO::PARAM_ABF),
+        nb::arg("packer") = static_cast<int>(GEO::PACK_XATLAS)
     );
 }

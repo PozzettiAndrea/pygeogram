@@ -389,3 +389,270 @@ def test_reconstruction_input_validation():
 
     with pytest.raises((ValueError, RuntimeError)):
         pygeogram.poisson_reconstruct(good_points, bad_normals)
+
+
+# ── Boolean Operations ───────────────────────────────────────────
+
+
+def make_box(center=(0, 0, 0), size=1.0):
+    """Create a simple axis-aligned box mesh for boolean tests."""
+    cx, cy, cz = center
+    h = size / 2.0
+    vertices = np.array([
+        [cx - h, cy - h, cz - h],
+        [cx + h, cy - h, cz - h],
+        [cx + h, cy + h, cz - h],
+        [cx - h, cy + h, cz - h],
+        [cx - h, cy - h, cz + h],
+        [cx + h, cy - h, cz + h],
+        [cx + h, cy + h, cz + h],
+        [cx - h, cy + h, cz + h],
+    ], dtype=np.float64)
+    faces = np.array([
+        # bottom
+        [0, 2, 1], [0, 3, 2],
+        # top
+        [4, 5, 6], [4, 6, 7],
+        # front
+        [0, 1, 5], [0, 5, 4],
+        # back
+        [2, 3, 7], [2, 7, 6],
+        # left
+        [0, 4, 7], [0, 7, 3],
+        # right
+        [1, 2, 6], [1, 6, 5],
+    ], dtype=np.int32)
+    return vertices, faces
+
+
+def test_boolean_union_basic():
+    """Union of two overlapping boxes should produce valid mesh."""
+    import pygeogram
+
+    va, fa = make_box(center=(0, 0, 0), size=1.0)
+    vb, fb = make_box(center=(0.5, 0, 0), size=1.0)
+
+    v_out, f_out = pygeogram.mesh_union(va, fa, vb, fb)
+
+    assert v_out.ndim == 2 and v_out.shape[1] == 3
+    assert f_out.ndim == 2 and f_out.shape[1] == 3
+    assert len(v_out) > 0
+    assert len(f_out) > 0
+
+
+def test_boolean_intersection_basic():
+    """Intersection of two overlapping boxes should produce valid mesh."""
+    import pygeogram
+
+    va, fa = make_box(center=(0, 0, 0), size=1.0)
+    vb, fb = make_box(center=(0.5, 0, 0), size=1.0)
+
+    v_out, f_out = pygeogram.mesh_intersection(va, fa, vb, fb)
+
+    assert v_out.ndim == 2 and v_out.shape[1] == 3
+    assert f_out.ndim == 2 and f_out.shape[1] == 3
+    assert len(v_out) > 0
+    assert len(f_out) > 0
+
+
+def test_boolean_difference_basic():
+    """Difference of two overlapping boxes should produce valid mesh."""
+    import pygeogram
+
+    va, fa = make_box(center=(0, 0, 0), size=1.0)
+    vb, fb = make_box(center=(0.5, 0, 0), size=1.0)
+
+    v_out, f_out = pygeogram.mesh_difference(va, fa, vb, fb)
+
+    assert v_out.ndim == 2 and v_out.shape[1] == 3
+    assert f_out.ndim == 2 and f_out.shape[1] == 3
+    assert len(v_out) > 0
+    assert len(f_out) > 0
+
+
+def test_boolean_union_larger_than_parts():
+    """Union bounding box should encompass both inputs."""
+    import pygeogram
+
+    va, fa = make_box(center=(0, 0, 0), size=1.0)
+    vb, fb = make_box(center=(0.5, 0, 0), size=1.0)
+
+    v_out, _ = pygeogram.mesh_union(va, fa, vb, fb)
+
+    # Union should span from -0.5 to 1.0 along X
+    assert np.min(v_out[:, 0]) < -0.4
+    assert np.max(v_out[:, 0]) > 0.9
+
+
+def test_boolean_intersection_smaller_than_parts():
+    """Intersection should be smaller than either input."""
+    import pygeogram
+
+    va, fa = make_box(center=(0, 0, 0), size=1.0)
+    vb, fb = make_box(center=(0.5, 0, 0), size=1.0)
+
+    v_out, _ = pygeogram.mesh_intersection(va, fa, vb, fb)
+
+    # Intersection should be in the overlap region [0, 0.5] along X
+    assert np.min(v_out[:, 0]) > -0.1
+    assert np.max(v_out[:, 0]) < 0.6
+
+
+def test_boolean_input_validation():
+    """Invalid mesh shapes should raise errors."""
+    import pygeogram
+
+    bad_verts = np.zeros((10, 2), dtype=np.float64)
+    good_verts = np.zeros((8, 3), dtype=np.float64)
+    good_faces = np.zeros((12, 3), dtype=np.int32)
+
+    with pytest.raises(ValueError):
+        pygeogram.mesh_union(bad_verts, good_faces, good_verts, good_faces)
+
+    with pytest.raises(ValueError):
+        pygeogram.mesh_union(good_verts, good_faces, bad_verts, good_faces)
+
+
+# ── Mesh I/O ─────────────────────────────────────────────────────
+
+
+def test_mesh_save_and_load_obj(tmp_path):
+    """Save and load OBJ should round-trip vertex/face data."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    filepath = str(tmp_path / "test.obj")
+
+    pygeogram.mesh_save(verts, faces, filepath)
+    v_loaded, f_loaded = pygeogram.mesh_load(filepath)
+
+    assert v_loaded.shape == verts.shape
+    assert f_loaded.shape == faces.shape
+    assert v_loaded.dtype == np.float64
+    assert f_loaded.dtype == np.int32
+    np.testing.assert_allclose(v_loaded, verts, atol=1e-6)
+
+
+def test_mesh_save_and_load_ply(tmp_path):
+    """Save and load PLY should round-trip."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    filepath = str(tmp_path / "test.ply")
+
+    pygeogram.mesh_save(verts, faces, filepath)
+    v_loaded, f_loaded = pygeogram.mesh_load(filepath)
+
+    assert v_loaded.shape == verts.shape
+    assert f_loaded.shape == faces.shape
+    np.testing.assert_allclose(v_loaded, verts, atol=1e-6)
+
+
+def test_mesh_save_and_load_off(tmp_path):
+    """Save and load OFF should round-trip."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    filepath = str(tmp_path / "test.off")
+
+    pygeogram.mesh_save(verts, faces, filepath)
+    v_loaded, f_loaded = pygeogram.mesh_load(filepath)
+
+    assert v_loaded.shape == verts.shape
+    assert f_loaded.shape == faces.shape
+    np.testing.assert_allclose(v_loaded, verts, atol=1e-6)
+
+
+def test_mesh_save_and_load_stl(tmp_path):
+    """Save and load STL should preserve faces (vertices may be duplicated)."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    filepath = str(tmp_path / "test.stl")
+
+    pygeogram.mesh_save(verts, faces, filepath)
+    v_loaded, f_loaded = pygeogram.mesh_load(filepath)
+
+    # STL duplicates vertices per face, so vertex count may differ
+    assert v_loaded.ndim == 2 and v_loaded.shape[1] == 3
+    assert f_loaded.ndim == 2 and f_loaded.shape[1] == 3
+    assert len(f_loaded) == len(faces)
+
+
+def test_mesh_io_input_validation():
+    """Invalid mesh shapes should raise errors on save."""
+    import pygeogram
+
+    bad_verts = np.zeros((10, 2), dtype=np.float64)
+    good_faces = np.zeros((5, 3), dtype=np.int32)
+
+    with pytest.raises(ValueError):
+        pygeogram.mesh_save(bad_verts, good_faces, "/tmp/bad.obj")
+
+
+def test_mesh_load_nonexistent():
+    """Loading a nonexistent file should raise an error."""
+    import pygeogram
+
+    with pytest.raises(RuntimeError):
+        pygeogram.mesh_load("/tmp/nonexistent_mesh_file_xyz.obj")
+
+
+# ── UV Parameterization ──────────────────────────────────────────
+
+
+def test_make_atlas_basic():
+    """UV atlas should return per-face-corner UV coordinates."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    uvs = pygeogram.make_atlas(verts, faces)
+
+    assert uvs.ndim == 3
+    assert uvs.shape == (len(faces), 3, 2)
+    assert uvs.dtype == np.float64
+
+
+def test_make_atlas_uv_range():
+    """UV coordinates should be in [0, 1] after packing."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    uvs = pygeogram.make_atlas(verts, faces)
+
+    assert np.all(uvs >= -0.01)  # small tolerance
+    assert np.all(uvs <= 1.01)
+
+
+def test_make_atlas_parameterizers():
+    """Different parameterizer methods should all produce valid output."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+
+    for param in [pygeogram.PARAM_PROJECTION, pygeogram.PARAM_LSCM, pygeogram.PARAM_ABF]:
+        uvs = pygeogram.make_atlas(verts, faces, parameterizer=param)
+        assert uvs.shape == (len(faces), 3, 2)
+        assert np.all(np.isfinite(uvs))
+
+
+def test_make_atlas_no_packing():
+    """Atlas with PACK_NONE should still produce UVs (just not packed)."""
+    import pygeogram
+
+    verts, faces = make_icosphere()
+    uvs = pygeogram.make_atlas(verts, faces, packer=pygeogram.PACK_NONE)
+
+    assert uvs.shape == (len(faces), 3, 2)
+    assert np.all(np.isfinite(uvs))
+
+
+def test_make_atlas_input_validation():
+    """Invalid mesh shapes should raise errors."""
+    import pygeogram
+
+    bad_verts = np.zeros((10, 2), dtype=np.float64)
+    good_faces = np.zeros((5, 3), dtype=np.int32)
+
+    with pytest.raises(ValueError):
+        pygeogram.make_atlas(bad_verts, good_faces)

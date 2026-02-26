@@ -570,6 +570,226 @@ def main():
         "demos": recon_demos,
     })
 
+    # ── Boolean Operations ────────────────────────────────────────
+    bool_demos = []
+
+    # Create two overlapping meshes: original + shifted copy
+    shift = np.zeros_like(verts)
+    bbox = verts.max(axis=0) - verts.min(axis=0)
+    shift[:, 0] = bbox[0] * 0.4  # shift 40% of bounding box along X
+    verts_b = verts + shift
+
+    # Custom render for boolean: show both inputs
+    prefix_bool = os.path.join(OUT_DIR, "bool_union")
+    pl = pv.Plotter(off_screen=True, window_size=(800, 600))
+    mesh_a_pv = pv_mesh_from_numpy(verts, faces)
+    mesh_b_pv = pv_mesh_from_numpy(verts_b, faces)
+    pl.add_mesh(mesh_a_pv, color=MESH_COLOR_IN, show_edges=True,
+                edge_color=EDGE_COLOR, line_width=0.5, opacity=0.7,
+                lighting=True, smooth_shading=True)
+    pl.add_mesh(mesh_b_pv, color=MESH_COLOR_WARN, show_edges=True,
+                edge_color=EDGE_COLOR, line_width=0.5, opacity=0.7,
+                lighting=True, smooth_shading=True)
+    pl.add_text(f"Input: 2 overlapping meshes", position="upper_left",
+                font_size=12, color=TEXT_COLOR)
+    pl.set_background(BG_COLOR)
+    pl.camera_position = "iso"
+    pl.screenshot(f"{prefix_bool}_before.png", transparent_background=False)
+    pl.close()
+
+    # Union
+    t0 = time.perf_counter()
+    v_union, f_union = pygeogram.mesh_union(verts, faces, verts_b, faces)
+    elapsed_union = time.perf_counter() - t0
+
+    mesh_union_pv = pv_mesh_from_numpy(v_union, f_union)
+    render_mesh(mesh_union_pv, f"{prefix_bool}_after.png",
+                f"Union: {len(v_union):,} verts, {len(f_union):,} faces  ({elapsed_union:.2f}s)",
+                color=MESH_COLOR_OUT)
+
+    bool_demos.append({
+        "name": "bool_union",
+        "verts_in": len(verts) + len(verts_b),
+        "faces_in": len(faces) * 2,
+        "verts_out": len(v_union),
+        "faces_out": len(f_union),
+        "elapsed": elapsed_union,
+        "code": textwrap.dedent(f"""\
+            import pygeogram
+
+            # Combine two overlapping meshes
+            v, f = pygeogram.mesh_union(
+                verts_a, faces_a,
+                verts_b, faces_b,
+            )"""),
+        "after_label": "Union (A + B)",
+    })
+
+    # Intersection — reuse same input image
+    prefix_isect = os.path.join(OUT_DIR, "bool_isect")
+    shutil.copy(f"{prefix_bool}_before.png", f"{prefix_isect}_before.png")
+
+    t0 = time.perf_counter()
+    v_isect, f_isect = pygeogram.mesh_intersection(verts, faces, verts_b, faces)
+    elapsed_isect = time.perf_counter() - t0
+
+    mesh_isect_pv = pv_mesh_from_numpy(v_isect, f_isect)
+    render_mesh(mesh_isect_pv, f"{prefix_isect}_after.png",
+                f"Intersection: {len(v_isect):,} verts, {len(f_isect):,} faces  ({elapsed_isect:.2f}s)",
+                color=MESH_COLOR_OUT)
+
+    bool_demos.append({
+        "name": "bool_isect",
+        "verts_in": len(verts) + len(verts_b),
+        "faces_in": len(faces) * 2,
+        "verts_out": len(v_isect),
+        "faces_out": len(f_isect),
+        "elapsed": elapsed_isect,
+        "code": textwrap.dedent(f"""\
+            # Keep only the overlapping region
+            v, f = pygeogram.mesh_intersection(
+                verts_a, faces_a,
+                verts_b, faces_b,
+            )"""),
+        "after_label": "Intersection (A * B)",
+    })
+
+    # Difference — reuse same input image
+    prefix_diff = os.path.join(OUT_DIR, "bool_diff")
+    shutil.copy(f"{prefix_bool}_before.png", f"{prefix_diff}_before.png")
+
+    t0 = time.perf_counter()
+    v_diff, f_diff = pygeogram.mesh_difference(verts, faces, verts_b, faces)
+    elapsed_diff = time.perf_counter() - t0
+
+    mesh_diff_pv = pv_mesh_from_numpy(v_diff, f_diff)
+    render_mesh(mesh_diff_pv, f"{prefix_diff}_after.png",
+                f"Difference: {len(v_diff):,} verts, {len(f_diff):,} faces  ({elapsed_diff:.2f}s)",
+                color=MESH_COLOR_OUT)
+
+    bool_demos.append({
+        "name": "bool_diff",
+        "verts_in": len(verts) + len(verts_b),
+        "faces_in": len(faces) * 2,
+        "verts_out": len(v_diff),
+        "faces_out": len(f_diff),
+        "elapsed": elapsed_diff,
+        "code": textwrap.dedent(f"""\
+            # Subtract B from A
+            v, f = pygeogram.mesh_difference(
+                verts_a, faces_a,
+                verts_b, faces_b,
+            )"""),
+        "after_label": "Difference (A - B)",
+    })
+
+    sections.append({
+        "title": "Boolean Operations",
+        "subtitle": "CSG union, intersection, and difference on closed surface meshes",
+        "demos": bool_demos,
+    })
+
+    # ── Mesh I/O ──────────────────────────────────────────────────
+    io_demos = []
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Save and reload through OBJ
+        obj_path = os.path.join(tmpdir, "mesh.obj")
+        t0 = time.perf_counter()
+        pygeogram.mesh_save(verts, faces, obj_path)
+        v_loaded, f_loaded = pygeogram.mesh_load(obj_path)
+        elapsed_io = time.perf_counter() - t0
+        obj_size = os.path.getsize(obj_path)
+
+    # Render original vs loaded (should be identical)
+    mesh_loaded_pv = pv_mesh_from_numpy(v_loaded, f_loaded)
+    prefix_io = os.path.join(OUT_DIR, "io_roundtrip")
+    render_mesh(pv_mesh_from_numpy(verts, faces), f"{prefix_io}_before.png",
+                f"Original: {len(verts):,} verts, {len(faces):,} faces")
+    render_mesh(mesh_loaded_pv, f"{prefix_io}_after.png",
+                f"Loaded: {len(v_loaded):,} verts, {len(f_loaded):,} faces  ({elapsed_io:.2f}s, {obj_size // 1024}KB)",
+                color=MESH_COLOR_OUT)
+
+    io_demos.append({
+        "name": "io_roundtrip",
+        "verts_in": len(verts),
+        "faces_in": len(faces),
+        "verts_out": len(v_loaded),
+        "faces_out": len(f_loaded),
+        "elapsed": elapsed_io,
+        "code": textwrap.dedent(f"""\
+            import pygeogram
+
+            # Save to OBJ (also supports PLY, OFF, STL)
+            pygeogram.mesh_save(verts, faces, "mesh.obj")
+
+            # Load back
+            v, f = pygeogram.mesh_load("mesh.obj")"""),
+        "after_label": "Loaded from OBJ",
+    })
+
+    sections.append({
+        "title": "Mesh I/O",
+        "subtitle": "Load and save meshes in OBJ, PLY, OFF, STL, and mesh/meshb formats",
+        "demos": io_demos,
+    })
+
+    # ── UV Parameterization ───────────────────────────────────────
+    uv_demos = []
+
+    t0 = time.perf_counter()
+    uvs = pygeogram.make_atlas(verts, faces)
+    elapsed_uv = time.perf_counter() - t0
+
+    # Render original mesh colored by UV coordinates
+    prefix_uv = os.path.join(OUT_DIR, "uv_atlas")
+    render_mesh(pv_mesh_from_numpy(verts, faces), f"{prefix_uv}_before.png",
+                f"Input: {len(verts):,} verts, {len(faces):,} faces")
+
+    # Create UV visualization: build a flat mesh from UVs
+    n_faces_uv = len(faces)
+    uv_verts_flat = uvs.reshape(-1, 2)  # (M*3, 2)
+    uv_verts_3d = np.column_stack([uv_verts_flat, np.zeros(len(uv_verts_flat))]).astype(np.float64)
+    uv_faces_flat = np.arange(n_faces_uv * 3, dtype=np.int32).reshape(-1, 3)
+    uv_mesh_pv = pv_mesh_from_numpy(uv_verts_3d, uv_faces_flat)
+
+    pl = pv.Plotter(off_screen=True, window_size=(800, 600))
+    pl.add_mesh(uv_mesh_pv, color=MESH_COLOR_OUT, show_edges=True,
+                edge_color=EDGE_COLOR, line_width=0.5, lighting=True)
+    pl.add_text(f"UV Atlas: {n_faces_uv:,} faces, {elapsed_uv:.2f}s",
+                position="upper_left", font_size=12, color=TEXT_COLOR)
+    pl.set_background(BG_COLOR)
+    pl.camera_position = "xy"
+    pl.screenshot(f"{prefix_uv}_after.png", transparent_background=False)
+    pl.close()
+
+    uv_demos.append({
+        "name": "uv_atlas",
+        "verts_in": len(verts),
+        "faces_in": len(faces),
+        "verts_out": len(verts),
+        "faces_out": len(faces),
+        "elapsed": elapsed_uv,
+        "code": textwrap.dedent(f"""\
+            import pygeogram
+
+            # Generate UV atlas (ABF + XAtlas packing)
+            uvs = pygeogram.make_atlas(
+                verts, faces,
+                parameterizer=pygeogram.PARAM_ABF,
+                packer=pygeogram.PACK_XATLAS,
+            )
+            # uvs.shape == (n_faces, 3, 2)"""),
+        "after_label": "UV Layout",
+    })
+
+    sections.append({
+        "title": "UV Parameterization",
+        "subtitle": "Generate texture atlas with LSCM/ABF parameterization and XAtlas packing",
+        "demos": uv_demos,
+    })
+
     generate_html(sections)
 
     # Preview image for README (first remesh before/after)
