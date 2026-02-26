@@ -46,12 +46,12 @@ test-command = "python -c \"import pygeogram; print(pygeogram.remesh_smooth); pr
 test-requires = "numpy"
 
 [tool.cibuildwheel.linux]
-archs = ["x86_64", "aarch64"]
+archs = ["x86_64"]
 before-all = "yum install -y libgomp || apt-get install -y libgomp1 || true"
 repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.macos]
-archs = ["x86_64", "arm64"]
+archs = ["arm64"]
 environment = {MACOSX_DEPLOYMENT_TARGET = "11.0"}
 repair-wheel-command = "delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}"
 
