@@ -92,17 +92,13 @@ def html_escape(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def generate_html(sections):
-    all_sections_html = ""
-    for section in sections:
-        all_sections_html += f"""
-    <h2 class="section-title">{section['title']}</h2>
-    <p class="section-sub">{section['subtitle']}</p>
-"""
-        for d in section["demos"]:
-            code_html = html_escape(d["code"])
-            label = d.get("after_label", "Output")
-            all_sections_html += f"""
+TEMPLATE_DIR = os.path.dirname(__file__)
+
+
+def _render_demo(d):
+    code_html = html_escape(d["code"])
+    label = d.get("after_label", "Output")
+    return f"""
     <section class="demo">
       <div class="demo-grid">
         <div class="demo-code">
@@ -122,160 +118,23 @@ def generate_html(sections):
           </div>
         </div>
       </div>
-    </section>
-"""
+    </section>"""
 
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>pygeogram — Geometry Processing</title>
-  <style>
-    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    body {{
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0d1117;
-      color: #c9d1d9;
-      padding: 2rem;
-      max-width: 1400px;
-      margin: 0 auto;
-    }}
-    a {{ color: #58a6ff; text-decoration: none; }}
-    a:hover {{ text-decoration: underline; }}
-    header {{
-      text-align: center;
-      margin-bottom: 2.5rem;
-      padding-bottom: 1.5rem;
-      border-bottom: 1px solid #21262d;
-    }}
-    header h1 {{ font-size: 2.2rem; margin-bottom: 0.3rem; color: #f0f6fc; }}
-    header .sub {{ color: #8b949e; font-size: 1.1rem; margin-bottom: 1rem; }}
-    .install {{
-      background: #161b22;
-      color: #aed581;
-      padding: 0.8rem 1.5rem;
-      border-radius: 6px;
-      border: 1px solid #21262d;
-      font-family: "SF Mono", "Fira Code", monospace;
-      font-size: 0.95rem;
-      display: inline-block;
-      margin: 0.8rem 0;
-    }}
-    .links {{ margin-top: 0.8rem; color: #8b949e; }}
 
-    .section-title {{
-      font-size: 1.5rem;
-      color: #f0f6fc;
-      margin: 2.5rem 0 0.3rem 0;
-      padding-top: 1.5rem;
-      border-top: 1px solid #21262d;
-    }}
-    .section-sub {{
-      color: #8b949e;
-      font-size: 0.95rem;
-      margin-bottom: 1rem;
-    }}
+def generate_html(sections):
+    sections_html = ""
+    for section in sections:
+        sections_html += f"""
+    <h2 class="section-title">{section['title']}</h2>
+    <p class="section-sub">{section['subtitle']}</p>"""
+        for d in section["demos"]:
+            sections_html += _render_demo(d)
 
-    .demo {{
-      background: #161b22;
-      border: 1px solid #21262d;
-      border-radius: 8px;
-      margin-bottom: 1.5rem;
-      overflow: hidden;
-    }}
-    .demo-grid {{
-      display: flex;
-      flex-wrap: wrap;
-    }}
-    .demo-code {{
-      flex: 0 0 420px;
-      padding: 1.5rem;
-      border-right: 1px solid #21262d;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-    }}
-    .demo-code pre {{
-      background: #0d1117;
-      border: 1px solid #21262d;
-      border-radius: 6px;
-      padding: 1rem;
-      overflow-x: auto;
-      font-size: 0.85rem;
-      line-height: 1.5;
-    }}
-    .demo-code code {{
-      font-family: "SF Mono", "Fira Code", monospace;
-      color: #c9d1d9;
-    }}
-    .timing {{
-      color: #81c784;
-      font-family: "SF Mono", "Fira Code", monospace;
-      font-size: 0.85rem;
-      margin-top: 0.8rem;
-    }}
-    .demo-images {{
-      flex: 1;
-      min-width: 500px;
-      padding: 1rem;
-    }}
-    .comparison {{
-      display: flex;
-      gap: 0.5rem;
-    }}
-    .panel {{
-      position: relative;
-      flex: 1;
-    }}
-    .panel img {{
-      width: 100%;
-      border-radius: 4px;
-      border: 1px solid #21262d;
-    }}
-    .label {{
-      position: absolute;
-      bottom: 6px;
-      right: 6px;
-      background: rgba(0,0,0,0.7);
-      color: #c9d1d9;
-      padding: 0.15rem 0.4rem;
-      border-radius: 3px;
-      font-size: 0.75rem;
-    }}
-    footer {{
-      text-align: center;
-      color: #484f58;
-      margin-top: 2rem;
-      font-size: 0.85rem;
-    }}
-    footer a {{ color: #484f58; }}
-    @media (max-width: 900px) {{
-      .demo-code {{ flex: 1 1 100%; border-right: none; border-bottom: 1px solid #21262d; }}
-      .demo-images {{ min-width: unset; }}
-    }}
-  </style>
-</head>
-<body>
-  <header>
-    <h1>pygeogram</h1>
-    <p class="sub">Python bindings for <a href="https://github.com/BrunoLevy/geogram">geogram</a> &mdash; geometry processing</p>
-    <div class="install">pip install pygeogram --find-links https://github.com/PozzettiAndrea/pygeogram/releases/latest/download/</div>
-    <p class="links">
-      <a href="https://github.com/PozzettiAndrea/pygeogram">GitHub</a> &middot;
-      <a href="https://pypi.org/project/pygeogram/">PyPI</a>
-    </p>
-  </header>
+    with open(os.path.join(TEMPLATE_DIR, "template.html")) as f:
+        template = f.read()
 
-  {all_sections_html}
+    html = template.replace("{{sections}}", sections_html)
 
-  <footer>
-    Generated automatically by CI &middot;
-    <a href="https://github.com/BrunoLevy/geogram">geogram</a> by Bruno Levy (INRIA)
-  </footer>
-</body>
-</html>
-"""
     with open(os.path.join(OUT_DIR, "index.html"), "w") as f:
         f.write(html)
 
