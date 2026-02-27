@@ -1,7 +1,9 @@
 name: Deploy demo site
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Build & Publish"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -12,6 +14,7 @@ concurrency:
 jobs:
   deploy:
     name: Build & deploy site
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
