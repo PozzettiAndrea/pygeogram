@@ -47,6 +47,9 @@ jobs:
       - name: Generate demo
         run: xvfb-run -a python docs/generate_demo.py
 
+      - name: Include PEP 503 simple index
+        run: cp -r simple docs/_site/simple
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/_site

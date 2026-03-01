@@ -61,5 +61,6 @@ before-build = "pip install delvewheel"
 repair-wheel-command = "delvewheel repair -w {dest_dir} {wheel}"
 
 [tool.scikit-build]
+wheel.packages = ["src/pygeogram"]
 wheel.py-api = "cp312"
 cmake.build-type = "Release"
