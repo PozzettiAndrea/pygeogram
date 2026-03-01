@@ -27,21 +27,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Build wheel
+      - name: Install wheel from releases
         run: |
-          pip install nanobind numpy scikit-build-core
-          pip install . -v
+          gh release download latest --pattern '*cp312*manylinux*x86_64*.whl' --dir wheelhouse
+          pip install wheelhouse/*.whl
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Install rendering deps
         run: |
-          pip install pyvista vtk Pillow
+          pip install pyvista vtk Pillow numpy
           sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dev
 
       - name: Generate demo
