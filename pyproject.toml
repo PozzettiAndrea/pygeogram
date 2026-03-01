@@ -23,7 +23,7 @@ dependencies = [
   "numpy"
 ]
 description = "Python bindings for geogram geometry processing (CVT remeshing)"
-name = "pygeogram"
+name = "pygeogram-ap"
 readme = "README.md"
 requires-python = ">=3.10"
 version = "0.1.0"
