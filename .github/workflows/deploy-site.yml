@@ -13,13 +13,14 @@ concurrency:
 
 jobs:
   deploy:
-    name: Build & deploy site
+    name: Deploy site
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       pages: write
       id-token: write
+      actions: read
 
     environment:
       name: github-pages
@@ -28,24 +29,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # workflow_run: download pre-rendered site from build workflow
+      - name: Download demo renders from build
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/download-artifact@v4
+        with:
+          name: demo-site
+          path: docs/_site
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      # workflow_dispatch fallback: generate renders from latest release
       - uses: actions/setup-python@v5
+        if: github.event_name == 'workflow_dispatch'
         with:
           python-version: "3.12"
 
-      - name: Install wheel from releases
+      - name: Generate renders from release wheel
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          gh release download latest --pattern '*cp312*manylinux*x86_64*.whl' --dir wheelhouse
+          gh release download --pattern '*cp312*manylinux*x86_64*.whl' --dir wheelhouse
           pip install wheelhouse/*.whl
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Install rendering deps
-        run: |
           pip install pyvista vtk Pillow numpy
           sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dev
-
-      - name: Generate demo
-        run: xvfb-run -a python docs/generate_demo.py
+          xvfb-run -a python docs/generate_demo.py
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Include PEP 503 simple index
         run: cp -r simple docs/_site/simple
